@@ -1,154 +1,179 @@
-> **免责声明**: 本项目完全由 AI 生成。使用本项目产生的一切后果由使用者自行承担，项目作者不对任何直接或间接损失负责。
+# Monitor Agent · Windows ARM64
 
-# monitor-agent
+用于甲骨文云 Ampere 等 **Windows ARM64** 主机的 Monitor 探针。
+基于 [Yeqingky/monitor-agent-win](https://github.com/Yeqingky/monitor-agent-win)
+完整 Windows 实现，参考 [官方 agent](https://github.com/monitor-probe/agent)
+与 [Hub](https://github.com/monitor-probe/monitor) 协议。保留上游 Git 历史和 MIT 许可。
 
-`monitor-agent` 是 monitor hub 的 Windows 主机 agent, 使用 WebSocket 上报本机指标并执行 hub 下发的 TCP 探测任务.
+**主产物：`monitor-agent-aarch64-pc-windows-msvc.zip`。**
+这是 ARM64 原生程序，不需要 x64 模拟、Rust、Python、PowerShell 定时采集或第三方服务包装器。
+PowerShell 仅用于可选安装脚本，服务和采集由 exe 自身完成。
 
-> 只维护 x86-64/amd64 版本的 monitor agent. 因为没有其他测试环境.
+## GitHub 云编译
 
-## 版本兼容性
+推送或合并到 `main` 后会自动运行 **Build Windows**，先验证再生成程序包。
+也可以按下面步骤手动重建。
 
-尽量与官方agent版本号对应.
+1. 在本仓库打开 **Actions → Build Windows → Run workflow**，选择 `main`。
+2. 保持 `publish` 不勾选，运行。
+3. 工作流先验证再编译。完成后在运行页面下方 **Artifacts** 下载
+   `monitor-agent-aarch64-pc-windows-msvc`。
+4. 解开 GitHub 的 artifact 外层 ZIP，再解开里面同名的程序 ZIP；
+   得到 `monitor-agent.exe`、`Install.ps1`、`BUILD-INFO.json` 等文件。
 
-| 官方 agent | agent-win (当前项目) |
-|:---:|:---:|
-| [v1.2.3](https://github.com/monitor-probe/agent/releases/tag/v1.2.3) | [v1.2.3](https://github.com/Yeqingky/monitor-agent-win/releases/tag/v1.2.3) |
-| [v1.2.2](https://github.com/monitor-probe/agent/releases/tag/v1.2.2) | [v1.2.2](https://github.com/Yeqingky/monitor-agent-win/releases/tag/v1.2.2) |
-| [v1.2.1](https://github.com/monitor-probe/agent/releases/tag/v1.2.1) | [v1.2.1](https://github.com/Yeqingky/monitor-agent-win/releases/tag/v1.2.1) |
-| [v1.2.0](https://github.com/monitor-probe/agent/releases/tag/v1.2.0) | [v1.2.0](https://github.com/Yeqingky/monitor-agent-win/releases/tag/v1.2.0) |
-| [v1.1.0](https://github.com/monitor-probe/agent/releases/tag/v1.1.0) | [v1.1.0](https://github.com/Yeqingky/monitor-agent-win/releases/tag/v1.1.0) |
-| [v1.0.0](https://github.com/monitor-probe/agent/releases/tag/v1.0.0) | [v1.0.0](https://github.com/Yeqingky/monitor-agent-win/releases/tag/v1.0.0) , [v1.0.1](https://github.com/Yeqingky/monitor-agent-win/releases/tag/v1.0.1) |
+| 主机系统 | 选择的程序包 |
+| --- | --- |
+| Windows ARM64（甲骨文 Ampere） | `monitor-agent-aarch64-pc-windows-msvc.zip` |
+| Windows x64 | `monitor-agent-x86_64-pc-windows-msvc.zip` |
+| Windows x64，兼容原上游 GNU 命名 | `monitor-agent-x86_64-pc-windows-gnu.zip` |
 
+CI 使用 `windows-11-arm` 对 ARM64 做原生编译、单元测试、实际 WebSocket
+上报/TCP 探测/重连测试和 Windows 服务安装/升级测试。
+MSVC 产物静态链接 CRT，不要求用户安装 Visual C++ Redistributable。
+GitHub 托管 ARM64 runner 的可用性与费用以账号和 GitHub 当前规则为准。
 
-## 架构
+## 在甲骨文 Windows 上安装
 
-- `src/main.rs`: 参数解析, 配置文件, Windows Service 生命周期, WebSocket 会话, 重连退避和 TCP 探测任务.
-- `src/collect.rs`: 使用 Win32 system information, IP Helper, registry 和文件系统 API 采集指标.
-- `.github/workflows/ci.yml`: Windows GNU target 的格式检查, 类型检查和 Clippy.
-- `.github/workflows/release.yml`: Windows 静态 release 产物.
+先在 Hub 后台新建一个节点，复制该节点的 token。
+Hub 后台生成的 Linux `curl | sh` 命令不能直接在 Windows 执行；
+使用同一条命令中的 `--server` 和 `--token` 即可。
 
-不调用 PowerShell, 不依赖本地化命令输出.
-
-## 安装和运行
-
-所有服务管理命令都需要以管理员身份运行 PowerShell:
-
-```powershell
-.\monitor-agent.exe install --server https://example.com --token <token>
-```
-
-`install` 会执行以下操作:
-
-- 将当前 exe 复制到 `%ProgramData%\monitor-agent\monitor-agent.exe`, Windows Service 始终使用这个副本.
-- 更新共享 exe 时会暂时停止已配置的 agent 实例, 完成后恢复.
-- 默认配置写入 `%ProgramData%\monitor-agent\agent.env`, 其他服务名写入 `%ProgramData%\monitor-agent\<service-name>.env`.
-- 使用 `icacls` 移除继承权限, 只允许 `SYSTEM` 和本机 Administrators 读取配置.
-- 注册名为 `monitor-agent` 的 Windows Service.
-- 配置 delayed auto-start.
-- 配置服务失败后 5 / 30 / 60 秒自动重启.
-- 启动服务.
-
-## 更新
-
-下载新版 exe 文件, 以管理员身份运行 PowerShell:
+在程序解压目录打开**管理员 PowerShell**：
 
 ```powershell
-.\monitor-agent.exe install
-```
-
-覆盖更新:
-```powershell
-.\monitor-agent.exe install --server https://example.com --token <token>
-```
-
-## 服务管理
-
-```powershell
+.\monitor-agent.exe install --server "https://你的面板域名" --token "该节点Token"
 .\monitor-agent.exe status
+```
+
+或使用会检查程序架构的安装脚本：
+
+```powershell
+.\Install.ps1 -Server "https://你的面板域名" -Token "该节点Token"
+```
+
+- 安装器复制程序到 `%ProgramData%\monitor-agent\monitor-agent.exe`。
+- token 写入受 ACL 保护的 `agent.env`，仅 SYSTEM 和 Administrators 可访问。
+- 注册 Windows 服务，延迟自动启动，失败后自动重启。
+- 不需要在 Windows 安装 Hub，也不需要为 agent 开入站端口；它主动连接 Hub。
+- `--server` 填 Hub 基础地址，不能加 `/api/agent/ws`。
+- 配置文件、token、日志不要提交到 GitHub。
+
+默认拒绝连接远程明文 HTTP。Hub 确实只配置了 HTTP 时显式添加 `--insecure`：
+
+```powershell
+.\monitor-agent.exe install --server "http://服务器IP:28080" --token "该节点Token" --insecure
+```
+
+若 1Panel 把 Hub 仅绑定在 `127.0.0.1:28080`，Windows 应连接反向代理后的
+HTTPS 域名。反向代理需要允许 WebSocket。
+
+## 常用操作
+
+```powershell
+# 下载新版到另一个目录后，保留原配置升级
+.\monitor-agent.exe install
+
+# 修改统计网卡；名称精确匹配 adapter alias
+netsh.exe interface show interface
+.\monitor-agent.exe install --iface "Ethernet"
+
 .\monitor-agent.exe start
 .\monitor-agent.exe stop
+.\monitor-agent.exe status
 .\monitor-agent.exe uninstall
 
-# Manage another independent agent instance.
-.\monitor-agent.exe install --service-name monitor-agent-backup --server https://example.com --token <token>
-.\monitor-agent.exe status --service-name monitor-agent-backup
-.\monitor-agent.exe start --service-name monitor-agent-backup
-.\monitor-agent.exe stop --service-name monitor-agent-backup
-.\monitor-agent.exe uninstall --service-name monitor-agent-backup
+# 查看日志
+Get-Content "$env:ProgramData\monitor-agent\agent.log" -Tail 60
 ```
 
-`uninstall` 只删除指定服务, 保留对应配置文件, 便于重新安装. 如需删除 token, 请在确认后手动删除 `%ProgramData%\monitor-agent`.
+升级请运行新解压目录中的 exe；服务运行中的副本由安装器替换。
+卸载会保留配置。使用 `--service-name monitor-agent-backup` 可安装独立实例。
+其他参数和行为见 [Windows 上游说明](https://github.com/Yeqingky/monitor-agent-win#安装和运行)。
 
-## 前台运行
+## 跟进上游
 
-也可以以前台进程运行, 便于调试:
+**Actions → Sync upstream → Run workflow** 可立即检查；默认每天北京时间 10:23 检查一次。
 
-```powershell
-.\monitor-agent.exe --server https://example.com --token <token>
-```
+| 上游 | 检查后的处理 |
+| --- | --- |
+| Windows agent | 执行 Git merge；ARM64/x64 CI 全部通过后，向本仓库提交 PR |
+| 官方 Linux agent | 记录提交与对比链接，供核对协议；不覆盖 Windows 采集代码 |
+| 官方 Hub | 记录提交与对比链接，供核对协议 |
 
-## 环境变量/参数
+首次使用自动 PR，在 **Settings → Actions → General → Workflow permissions**
+勾选 **Allow GitHub Actions to create and approve pull requests**。
+若组织策略不允许，可下载工作流中的 `upstream-candidate` 并本地处理。
+工作流按 job 申请最少权限，不需要配置个人 PAT。
 
-支持环境变量 `MONITOR_SERVICE_NAME`, `MONITOR_SERVER`, `MONITOR_TOKEN`, `MONITOR_INTERVAL`, `MONITOR_IFACE` 和 `MONITOR_INSECURE`. 配置文件优先于环境变量, 命令行参数优先于配置文件. `MONITOR_NICS` 与 `--nics` 保留为旧配置兼容入口. 重复执行 `install` 且服务名相同会更新该服务和配置; 使用不同服务名即可共存多个 agent.
+处理更新时：
 
-| 参数 | 默认 | 说明 |
-|---|---:|---|
-| `--server` | 必填 | hub 地址, 也可用配置文件或 `MONITOR_SERVER` |
-| `--token` | 必填 | 节点 token, 也可用配置文件或 `MONITOR_TOKEN` |
-| `--service-name` | `monitor-agent` | Windows Service 名称 |
-| `--config` | `%ProgramData%\monitor-agent\agent.env` | 配置文件路径, 默认按服务名区分 |
-| `--interval` | 1 | 上报间隔, 1-3600 秒 |
-| `--iface` | 空 | 网卡选择, adapter alias 逗号分隔; 正向列表只统计列出的网卡, `-名称` 从默认统计集合中排除, 排除优先 |
-| `--nics` | 空 | 旧参数, 等价于只统计列出的 adapter alias |
-| `--insecure` | 关闭 | 允许远端使用明文 `ws://`, token 会以明文传输 |
+1. 查看自动 PR 中的比较链接及 [UPSTREAM-STATUS.md](UPSTREAM-STATUS.md)。
+2. 正常 PR 的候选提交已经通过同一次 Sync upstream 运行中的三平台 CI。
+   GitHub 默认 token 创建的 PR 不一定再次触发 PR CI；这不影响此前的候选验证。
+3. 审阅后合并。保留 merge commit，**不要 squash 或 rebase 这类上游同步 PR**，
+   否则会丢失已合入上游的父提交关系。
+4. 在 `main` 运行 **Build Windows**，下载新程序执行 `install` 升级。
 
-## 上报字段
+有冲突时自动取消 source merge，生成 draft PR 和 `conflicts.patch`；
+**draft 跟踪 PR 不能当作新 agent 版本直接合并**。需先解决冲突并重新验证。
+检查/测试失败时不会向主分支写入或自动发布。
 
-- `Facts`: 主机名, Windows 版本, 架构, 虚拟化类型, CPU 型号和核数, 内存, page file, 磁盘总量, IPv4 / IPv6.
-- `Metrics`: CPU, load, 内存, page file, 磁盘, 网卡收发速率和累计计数器, TCP / UDP 数量, 进程数, uptime.
-- `boot_id`: hub 判断主机重启和网卡计数集合变化的依据.
-- `iface`: 当前 `--iface` 选择, 空值代表默认过滤规则, hub 可据此展示当前设置.
-- `net_rx_total` / `net_tx_total`: 所选网卡的系统累计字节计数器, hub 负责跨上报累加.
-
-`Facts` 每 60 秒重采一次. 变化时在当前 WebSocket 会话发送新的 `hello`, 无需等到重连.
-
-Windows 没有等价的内核 load-average 计数器, `load` 是按 1 / 5 / 15 分钟窗口平滑后的 CPU demand, 单位为逻辑 CPU 数. 磁盘统计 fixed logical drives, 不统计网络盘、光盘和可移动盘.
-
-每个地址族上报最可公网路由的本机地址. WireGuard 隧道 (adapter alias 为 `wg*` 或含 `wireguard`) 上的公网 IPv6 会上报, 隧道自身的私网地址除外; Cloudflare WARP 的共享段 `2606:4700::/32` 在任何网卡上都不作为本机地址上报. 本机 IPv4 为私网地址时, agent 会在会话之外向 hub 的 `/api/agent/echo` 另开一条只握手的短连接, 让面板显示该节点另一地址族的出口 (需要 hub 1.4.1 及以上; 失败每 30 秒重试, 最多 3 次, 不影响正常上报).
-
-## 网卡选择
-
-默认过滤 loopback、容器、隧道和常见虚拟网卡. 
-`--iface` 的正向列表替换默认过滤规则, `-alias` 从默认集合中排除网卡, 排除优先于列出. 
-名称精确匹配 Windows adapter alias; 多个名称用逗号分隔, alias 含空格时请给整个参数加引号. 不存在的正向名称会在启动时提示, 并按 0 字节统计. 空 `--iface` 恢复默认规则.
-
-可以通过在 Powershell中执行 `netsh.exe interface show interface` 列出网卡.
-
-仅监听`以太网`:
-
-```powershell
-.\monitor-agent.exe install --server https://example.com --token <token> --iface "以太网"
-```
-
-不监听`以太网`:
-
-```powershell
-.\monitor-agent.exe install --server https://example.com --token <token> --iface "-以太网"
-```
-
-## 构建和验证
-
-需要 Rust stable 和 `x86_64-w64-mingw32-gcc`:
+本地跟进 Windows 上游：
 
 ```bash
-cargo fmt --all --check
-cargo check --locked --target x86_64-pc-windows-gnu
-cargo clippy --locked --target x86_64-pc-windows-gnu --all-targets -- -D warnings
-RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked --target x86_64-pc-windows-gnu
+git remote add upstream-windows https://github.com/Yeqingky/monitor-agent-win.git
+git fetch upstream-windows main
+git switch -c update/windows-upstream
+git merge upstream-windows/main
+# 解决冲突、验证后推送分支，并创建 PR
 ```
 
-release 产物为 `monitor-agent-x86_64-pc-windows-gnu.exe`.
+具体基线、已观察版本及兼容性限制记录在
+[upstream-lock.json](upstream-lock.json) 和 [UPSTREAM-STATUS.md](UPSTREAM-STATUS.md)。
+观察到新 Linux/Hub 版本不代表已自动完成它的 Windows 移植。
 
-## 许可
+## 发布到 Releases
 
-MIT
+普通手动构建仅产出 Artifacts。正式发布时，tag 必须等于 `v` + `Cargo.toml` 的版本。
+当前基线为 `1.2.3`，第一次可执行：
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+推送 tag 会运行验证、编译并创建 Release，附三种架构程序、ZIP、
+构建信息和 `sha256sums.txt`。重复发布同一 tag 不会覆盖既有 Release。
+下载后可用 `Get-FileHash 文件名 -Algorithm SHA256` 核对校验值。
+
+## 采集与限制
+
+沿用 Windows 上游的 CPU、内存、page file、固定磁盘、流量计数、
+TCP/UDP、进程、uptime、IP、TCP 延迟探测、重连和服务管理。
+`Facts` / `Metrics` 及 JSON-RPC 方法名保持不变。
+
+ARM64 上不调用 x86 CPUID，改从 Windows 固件标识尽力判断虚拟化类型。
+未知固件会显示 `virt=none`，不影响其他监控。CPU 名称来自 Windows 注册表，
+个别镜像可能只提供通用名称；本分支不会把所有 Oracle 机器强行标为 KVM。
+
+Windows 的 load 是根据 CPU 使用率平滑得到的近似值，不等同于 Linux 内核 load。
+流量统计取所选网卡计数器，由 Hub 负责累加，保留重启和网卡集合变化的识别逻辑。
+
+GitHub runner 测试不能代替你实际的甲骨文镜像与 Hub 联机验收。
+首次安装后确认节点在线、CPU/内存/流量变化、延迟探测及重启后自启动。
+
+## 本地开发
+
+需要 Rust stable、MSVC 与对应的 Windows SDK/ARM64 C++ 工具链：
+
+```powershell
+rustup target add aarch64-pc-windows-msvc
+$env:RUSTFLAGS = "-C target-feature=+crt-static"
+cargo fmt --all --check
+cargo check --locked --target aarch64-pc-windows-msvc
+cargo clippy --locked --target aarch64-pc-windows-msvc --all-targets -- -D warnings
+cargo test --locked --target aarch64-pc-windows-msvc
+cargo build --release --locked --target aarch64-pc-windows-msvc
+```
+
+MIT；保留 stqfdyr 和 Yeqingky 的原版权信息。

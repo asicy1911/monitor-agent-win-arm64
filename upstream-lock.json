@@ -1,0 +1,22 @@
+{
+  "windows": {
+    "repo": "Yeqingky/monitor-agent-win",
+    "branch": "main",
+    "version": "1.2.3",
+    "commit": "eb0d281d24be163e818c1905a0ba7a08c4b5e353",
+    "mode": "merge"
+  },
+  "official_agent": {
+    "repo": "monitor-probe/agent",
+    "branch": "main",
+    "version": "1.2.4",
+    "commit": "d6f1f498d3c98b68a4794b736a65c2c334fd488a",
+    "mode": "observe"
+  },
+  "hub": {
+    "repo": "monitor-probe/monitor",
+    "branch": "main",
+    "commit": "2840c7b07735771b043c5a824c31e6eb435d0f56",
+    "mode": "observe"
+  }
+}

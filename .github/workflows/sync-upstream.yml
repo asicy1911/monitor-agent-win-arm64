@@ -1,0 +1,88 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # 10:23 Asia/Shanghai.
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      changed: ${{ steps.prepare.outputs.changed }}
+      conflict: ${{ steps.prepare.outputs.conflict }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - id: prepare
+        name: Merge Windows upstream and record official protocol changes
+        env:
+          CANDIDATE_DIR: ${{ runner.temp }}/upstream-candidate
+        run: python tools/sync_upstream.py
+      - if: steps.prepare.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/upstream-candidate/*
+          if-no-files-found: error
+          retention-days: 14
+
+  verify:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    uses: ./.github/workflows/ci.yml
+    with:
+      bundle_artifact: upstream-candidate
+    permissions:
+      contents: read
+
+  propose:
+    needs: [prepare, verify]
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/upstream-candidate
+      - name: Push the verified candidate and open a PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CONFLICT: ${{ needs.prepare.outputs.conflict }}
+        run: |
+          git fetch "$RUNNER_TEMP/upstream-candidate/candidate.bundle" HEAD
+          git push origin FETCH_HEAD:refs/heads/sync/upstream --force-with-lease
+          pr_number=$(gh pr list --head sync/upstream --base main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr_number" ]; then
+            gh pr edit "$pr_number" --body-file "$RUNNER_TEMP/upstream-candidate/pr-body.md"
+            if [ "$CONFLICT" = true ]; then gh pr ready "$pr_number" --undo || true; fi
+          else
+            draft=()
+            if [ "$CONFLICT" = true ]; then draft=(--draft); fi
+            gh pr create --head sync/upstream --base main --title 'chore: sync upstream' \
+              --body-file "$RUNNER_TEMP/upstream-candidate/pr-body.md" "${draft[@]}"
+          fi

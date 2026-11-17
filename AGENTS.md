@@ -4,12 +4,16 @@
 
 本仓库负责构建 monitor hub 的 Windows 主机监控 agent. Agent 通过 WebSocket 发送 `Facts` 和 `Metrics`, 执行 hub 下发的 TCP 探测任务, 并作为 Windows Service 自启动. 发布版本与 Linux `monitor-probe/agent` 同步.
 
+本分支支持 Windows ARM64 和 x64. ARM64 必须构建为 `aarch64-pc-windows-msvc`，不能调用 x86 CPUID. 非 x86 架构通过固件字符串尽力识别虚拟化类型，未知时返回 none，不应仅凭 Oracle 厂商名推断 KVM.
+
 ## 代码导航
 
 - `src/main.rs`: 参数解析, ACL 配置文件, Windows Service 生命周期, WebSocket 会话, 重连退避和探测任务.
 - `src/collect.rs`: Win32 API 指标采集.
 - `.github/workflows/ci.yml`: Windows GNU target 的格式检查, 类型检查和 Clippy.
 - `.github/workflows/release.yml`: Windows GNU release 产物.
+- `.github/workflows/sync-upstream.yml`: 合并 Windows 上游、只读验证后发 PR；官方 Linux agent 和 Hub 仅观察变更.
+- `tools/`: 原生端到端测试、Windows 服务测试、打包和上游合并工具.
 
 ## 开发和验证
 
@@ -22,11 +26,15 @@ RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked --targe
 
 Windows 交叉编译需要 `x86_64-w64-mingw32-gcc`. 本机没有 Windows runtime 时, 至少执行 Windows target 的 `cargo check`.
 
+ARM64 在 Windows ARM64 + MSVC 环境执行相同的 check、clippy、test 和 release build，target 为 `aarch64-pc-windows-msvc`. x64 MSVC target 为 `x86_64-pc-windows-msvc`. 两者均设置 `RUSTFLAGS=-C target-feature=+crt-static`.
+原生 CI 另执行 `tools/smoke_test.py` 和 `tools/service-smoke.ps1`，验证真实指标、TCP 探测、重连及服务升级. PR 只能在验证完成后创建，不自动合并.
+
 ## 版本控制和发布
 
 - 不提交 `target/`, 本地 token 或运行日志.
 - release 使用 `v*` tag, tag 与 `Cargo.toml` 版本必须一致; Windows agent 版本须与 Linux `monitor-probe/agent` 对齐.
 - Windows 产物名称必须保持 `monitor-agent-x86_64-pc-windows-gnu.exe`.
+- 同时发布 `monitor-agent-aarch64-pc-windows-msvc.exe` 和 `monitor-agent-x86_64-pc-windows-msvc.exe`，保留 GNU 产物兼容旧命名.
 - 改变产物名称或服务名称时必须同步 release workflow 和安装说明.
 
 ## 必须保持的业务规则

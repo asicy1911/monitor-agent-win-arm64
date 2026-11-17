@@ -1,4 +1,10 @@
 /target
+/dist/
+__pycache__/
+*.pyc
+*.env
+*.log
+/candidate/
 
 # 私有文档与本地 AI 配置，不进开源仓库
 /docs/

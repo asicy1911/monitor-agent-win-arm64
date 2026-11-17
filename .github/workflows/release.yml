@@ -1,52 +1,86 @@
-name: release
+name: Build Windows
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Also publish a GitHub Release (run on a matching v* tag)
+        type: boolean
+        default: false
 
-# Read-only by default: the build jobs run third-party actions, dependency
-# build scripts and install hooks, none of which may hold a token that can
-# publish. Only the job that creates the release asks for more.
 permissions:
   contents: read
 
 jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+
   build:
-    runs-on: ubuntu-latest
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - runner: ubuntu-24.04
+            target: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: -C target-feature=+crt-static
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
-      # A v* tag can be neither moved nor deleted, so one that disagrees with the
-      # version the agent reports stops here, before anything is published.
-      - if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          V=v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
-          [ "$GITHUB_REF_NAME" = "$V" ] || { echo "::error::tag $GITHUB_REF_NAME, Cargo.toml $V"; exit 1; }
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check release version
+        env:
+          PUBLISH: ${{ inputs.publish || startsWith(github.ref, 'refs/tags/') }}
+        run: python tools/package.py --check-version
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-pc-windows-gnu
-      - run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
-      - run: RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked --target x86_64-pc-windows-gnu
-      - run: cp target/x86_64-pc-windows-gnu/release/monitor-agent.exe monitor-agent-x86_64-pc-windows-gnu.exe
+          targets: ${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - run: python tools/package.py --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: x86_64-pc-windows-gnu
-          path: monitor-agent-x86_64-pc-windows-gnu.exe
+          name: monitor-agent-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
 
-  release:
+  publish:
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish == true
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
+          pattern: monitor-agent-*
+          path: dist
           merge-multiple: true
-      - if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          mkdir -p bin && mv monitor-agent-* bin/
-          (cd bin && sha256sum monitor-agent-* > sha256sums.txt)
-          gh release create "$GITHUB_REF_NAME" bin/monitor-agent-* bin/sha256sums.txt \
-            --generate-notes --repo "$GITHUB_REPOSITORY"
+      - name: Publish release with checksums
+        working-directory: dist
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sha256sum monitor-agent-* > sha256sums.txt
+          gh release create "$RELEASE_TAG" ./* --verify-tag --generate-notes

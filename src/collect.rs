@@ -627,6 +627,7 @@ fn virtualization() -> String {
 /// one that clears the bit leaves its guest reported as bare metal. Its DMI
 /// strings are the provider's to choose -- `KVM`, `QEMU`, a cloud's own name
 /// -- and would name one hypervisor several ways.
+#[cfg(target_arch = "x86_64")]
 fn hypervisor() -> Option<&'static str> {
     let signature = cpuid_signature()?;
     match signature_name(&signature) {
@@ -639,8 +640,16 @@ fn hypervisor() -> Option<&'static str> {
     }
 }
 
+/// ARM64 has no CPUID instruction. Read the same firmware identity exposed
+/// by Windows instead; an unrecognised identity leaves the field at `none`.
+#[cfg(not(target_arch = "x86_64"))]
+fn hypervisor() -> Option<&'static str> {
+    firmware_named_hypervisor()
+}
+
 /// The 12-byte vendor signature of CPUID leaf 0x40000000, `None` where leaf 1
 /// reports no hypervisor.
+#[cfg(target_arch = "x86_64")]
 fn cpuid_signature() -> Option<[u8; 12]> {
     use std::arch::x86_64::__cpuid;
     if __cpuid(1).ecx >> 31 == 0 {
@@ -656,6 +665,7 @@ fn cpuid_signature() -> Option<[u8; 12]> {
 
 /// The hypervisor a 12-byte CPUID signature names, `None` for a signature
 /// that is none of these (reported as a plain `vm`).
+#[cfg(any(target_arch = "x86_64", test))]
 fn signature_name(signature: &[u8; 12]) -> Option<&'static str> {
     Some(match signature {
         b"KVMKVMKVM\0\0\0" | b"Linux KVM Hv" => "kvm",
@@ -684,9 +694,26 @@ fn firmware_named_hypervisor() -> Option<&'static str> {
     .collect::<Vec<_>>()
     .join(" ")
     .to_ascii_lowercase();
-    [("xen", "xen"), ("amazon", "kvm"), ("google", "kvm"), ("virtual machine", "hyper-v")]
-        .into_iter()
-        .find_map(|(needle, name)| text.contains(needle).then_some(name))
+    firmware_hypervisor(&text)
+}
+
+fn firmware_hypervisor(text: &str) -> Option<&'static str> {
+    let text = text.to_ascii_lowercase();
+    // Do not classify every "Oracle" machine as KVM: Oracle also supplies
+    // VirtualBox and bare-metal systems. Match the virtual platform itself.
+    [
+        ("virtualbox", "virtualbox"),
+        ("vmware", "vmware"),
+        ("bhyve", "bhyve"),
+        ("xen", "xen"),
+        ("kvm", "kvm"),
+        ("qemu", "qemu"),
+        ("amazon", "kvm"),
+        ("google", "kvm"),
+        ("virtual machine", "hyper-v"),
+    ]
+    .into_iter()
+    .find_map(|(needle, name)| text.contains(needle).then_some(name))
 }
 
 #[cfg(test)]
@@ -813,6 +840,22 @@ mod tests {
             assert_eq!(signature_name(signature), Some(name), "{signature:?}");
         }
         assert_eq!(signature_name(b"GenuineIntel"), None);
+    }
+
+    #[test]
+    fn firmware_identifies_arm_virtual_platforms_without_guessing_from_oracle() {
+        for (firmware, expected) in [
+            ("QEMU KVM Virtual Machine", Some("kvm")),
+            ("QEMU Standard ARM Virtual Machine", Some("qemu")),
+            ("Oracle Corporation VirtualBox", Some("virtualbox")),
+            ("VMware, Inc. VMware Virtual Platform", Some("vmware")),
+            ("Microsoft Corporation Virtual Machine", Some("hyper-v")),
+            ("Ampere Computing Altra", None),
+            ("Oracle Corporation", None),
+            ("", None),
+        ] {
+            assert_eq!(firmware_hypervisor(firmware), expected, "{firmware}");
+        }
     }
 
     #[test]
