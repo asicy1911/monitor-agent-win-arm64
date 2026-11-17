@@ -577,12 +577,8 @@ fn run_foreground(args: Args) -> Result<()> {
 }
 
 fn run_service(arguments: Vec<OsString>) -> Result<()> {
-    let mut raw: Vec<String> = arguments.into_iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
-    // SCM may include the registered service name as argv[0] for ServiceMain.
-    if raw.first().is_some_and(|arg| arg != "service" && !arg.starts_with('-')) {
-        raw.remove(0);
-    }
-    let service_name = parse_service_name(raw.iter().cloned())?;
+    let raw = arguments.into_iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+    let (service_name, options) = service_process_options(raw)?;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let event_handler = move |event| match event {
         ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -603,7 +599,6 @@ fn run_service(arguments: Vec<OsString>) -> Result<()> {
         process_id: None,
     })?;
 
-    let options = raw.into_iter().filter(|arg| arg != "service");
     let args = match parse_options(options) {
         Ok(args) => args,
         Err(error) => {
@@ -643,10 +638,21 @@ fn run_service(arguments: Vec<OsString>) -> Result<()> {
     result
 }
 
+/// These are the executable's ImagePath arguments, including --config and
+/// --service-name. SCM's ServiceMain arguments instead contain the service
+/// name and optional StartService parameters, not the saved ImagePath flags.
+fn service_process_options(mut raw: Vec<String>) -> Result<(String, Vec<String>)> {
+    if raw.first().is_some_and(|arg| arg == "service") {
+        raw.remove(0);
+    }
+    let service_name = parse_service_name(raw.iter().cloned())?;
+    Ok((service_name, raw))
+}
+
 define_windows_service!(ffi_service_main, service_main);
 
-fn service_main(arguments: Vec<OsString>) {
-    if let Err(error) = run_service(arguments) {
+fn service_main(_arguments: Vec<OsString>) {
+    if let Err(error) = run_service(std::env::args_os().skip(1).collect()) {
         agent_log!("service failed: {error:#}");
     }
 }
@@ -1298,6 +1304,18 @@ async fn handshake(addresses: impl Iterator<Item = std::net::SocketAddr>) -> i32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn service_process_options_keep_the_installed_config_and_instance_name() {
+        for name in ["monitor-agent-ci", "service"] {
+            let raw =
+                ["service", "--config", r"C:\ProgramData\monitor-agent\custom.env", "--service-name", name];
+            let (service_name, options) =
+                service_process_options(raw.into_iter().map(str::to_owned).collect()).unwrap();
+            assert_eq!(service_name, name);
+            assert_eq!(options, raw[1..]);
+        }
+    }
 
     #[test]
     fn a_hub_restart_costs_a_second_while_an_unreachable_one_still_backs_off() {

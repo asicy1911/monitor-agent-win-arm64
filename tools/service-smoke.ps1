@@ -18,6 +18,10 @@ try {
     (Get-Service -Name $serviceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(20))
     Invoke-Agent -AgentArgs @('start', '--service-name', $serviceName)
     (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(20))
+} catch {
+    Get-Content (Join-Path $env:ProgramData "monitor-agent/$serviceName.log") -Tail 60 -ErrorAction SilentlyContinue
+    Get-CimInstance Win32_Service -Filter "Name='$serviceName'" | Select-Object Name, State, ExitCode, PathName | Format-List
+    throw
 } finally {
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
         Invoke-Agent -AgentArgs @('uninstall', '--service-name', $serviceName)
