@@ -1,21 +1,19 @@
 # Upstream status
 
-Baseline checked on 2026-11-17.
+Windows changes are merged into a candidate branch and tested before a PR is opened.
+Official Linux agent and Hub commits are tracked for manual protocol review.
 
-| Source | Baseline | Handling |
+| Source | Latest observed commit | Handling |
 | --- | --- | --- |
-| [Yeqingky/monitor-agent-win](https://github.com/Yeqingky/monitor-agent-win) | 1.2.3 / eb0d281d24be | Full Windows source and history retained |
-| [monitor-probe/agent](https://github.com/monitor-probe/agent) | 1.2.4 / d6f1f498d3c9 | Protocol reference; Linux collection code is not copied |
-| [monitor-probe/monitor](https://github.com/monitor-probe/monitor) | 2840c7b07735 | Current hello/report/ping.tasks/ping.result protocol checked |
+| [Yeqingky/monitor-agent-win](https://github.com/Yeqingky/monitor-agent-win) | [eb0d281d24be](https://github.com/Yeqingky/monitor-agent-win/commit/eb0d281d24be163e818c1905a0ba7a08c4b5e353) | merged Windows source |
+| [monitor-probe/agent](https://github.com/monitor-probe/agent) | [9986559bbe38](https://github.com/monitor-probe/agent/commit/9986559bbe38d5bc447ba08f98307e907c663cbd) | tracking only; review protocol changes |
+| [monitor-probe/monitor](https://github.com/monitor-probe/monitor) | [df5e4b4beecd](https://github.com/monitor-probe/monitor/commit/df5e4b4beecde965f0ee4f1eb82e14d03942d90f) | tracking only; review protocol changes |
 
-The binary reports version 1.2.3, matching the Windows upstream base.
-The ARM64 adaptation is identified by the repository commit in BUILD-INFO.json.
+## Changes in this check
 
-ARM64 changes are restricted to architecture-dependent virtualization detection.
-Unrecognised firmware can report virt=none; this does not stop collection or reporting.
-No live connection to the user's Oracle instance or Hub has been performed.
+- [monitor-probe/agent: compare](https://github.com/monitor-probe/agent/compare/d6f1f498d3c98b68a4794b736a65c2c334fd488a...9986559bbe38d5bc447ba08f98307e907c663cbd)
+- [monitor-probe/monitor: compare](https://github.com/monitor-probe/monitor/compare/2840c7b07735771b043c5a824c31e6eb435d0f56...df5e4b4beecde965f0ee4f1eb82e14d03942d90f)
 
-Sync upstream checks the three main branches daily, prepares a real merge for
-Windows changes, runs CI on the exact candidate, then opens a PR.
-Linux agent and Hub changes are tracked for manual review; observing them is not
-a claim that all future protocol changes are compatible.
+ARM64 remains aarch64-pc-windows-msvc; retain the conditional CPUID handling.
+The candidate runs the same ARM64, x64 MSVC and x64 GNU checks as normal CI.
+Merging an observation-only update does not mean the Linux changes have been ported.
