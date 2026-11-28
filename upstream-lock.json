@@ -10,13 +10,13 @@
     "repo": "monitor-probe/agent",
     "branch": "main",
     "version": "1.2.4",
-    "commit": "d6f1f498d3c98b68a4794b736a65c2c334fd488a",
+    "commit": "257d7bc3b972d9afa1ed1f86e9f8c8a2cfe964b5",
     "mode": "observe"
   },
   "hub": {
     "repo": "monitor-probe/monitor",
     "branch": "main",
-    "commit": "2840c7b07735771b043c5a824c31e6eb435d0f56",
+    "commit": "6a8d0a5ce63af3dc055c118a9435754b888eea87",
     "mode": "observe"
   }
 }
